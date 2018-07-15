@@ -877,6 +877,124 @@ UniValue getaddresstxids(const UniValue& params, bool fHelp)
 
 }
 
+bool addressHistorySort(UniValue& a, UniValue& b)
+{
+    int aHeight = find_value(a.get_obj(), "blockHeight").get_int();
+    int bHeight = find_value(b.get_obj(), "blockHeight").get_int();
+    if (aHeight == 0) {
+        return true;
+    }
+    if (bHeight == 0) {
+        return false;
+    }
+    return aHeight > bHeight;
+}
+
+UniValue getaddresshistory(const UniValue& params, bool fHelp)
+{
+    if (fHelp || params.size() != 1)
+        throw runtime_error("");
+
+    // param address
+    std::string addressStr = find_value(params[0].get_obj(), "address").get_str();
+
+    CBitcoinAddress address(addressStr);
+    uint160 hashBytes;
+    int type = 0;
+    if (!address.GetIndexKey(hashBytes, type)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid address");
+                                                                      }
+    std::vector<std::pair<CAddressIndexKey, CAmount> > addressIndex;
+    if (!GetAddressIndex(hashBytes, type, addressIndex)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No information available for address");
+    }
+
+    // param cp txes
+    UniValue cpTxesValues = find_value(params[0].get_obj(), "cp_txs");
+    if (!cpTxesValues.isArray()) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "cp_txs is expected to be an array");
+    }
+
+    // param paging
+    int page = find_value(params[0].get_obj(), "page").get_int();
+    int per_page = find_value(params[0].get_obj(), "per_page").get_int();
+
+    // txes
+    std::vector<UniValue> txes;
+    std::set<std::pair<int, std::string> > txids;
+
+    // confirmed txes
+    for (std::vector<std::pair<CAddressIndexKey, CAmount> >::const_iterator it=addressIndex.begin(); it!=addressIndex.end(); it++) {
+        std::string txid = it->first.txhash.GetHex();
+        int height = it->first.blockHeight;
+        if (txids.insert(std::make_pair(height, txid)).second) {
+            UniValue obj(UniValue::VOBJ);
+            obj.push_back(std::make_pair("txid", txid));
+            obj.push_back(std::make_pair("blockHeight", height));
+            txes.push_back(obj);
+        }
+    }
+
+    // uncoinfirmed txes
+    std::vector<std::pair<uint160, int> > addresses;
+    addresses.push_back(std::make_pair(hashBytes, type));
+
+    std::vector<std::pair<CMempoolAddressDeltaKey, CMempoolAddressDelta> > indexes;
+    if (!mempool.getAddressIndex(addresses, indexes)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No information available for address");
+    }
+
+    for (std::vector<std::pair<CMempoolAddressDeltaKey, CMempoolAddressDelta> >::iterator it = indexes.begin(); it != indexes.end(); it++) {
+        std::string txid = it->first.txhash.GetHex();
+        int height = 0;
+        if (txids.insert(std::make_pair(height, txid)).second) {
+            UniValue obj(UniValue::VOBJ);
+            obj.push_back(std::make_pair("txid", txid));
+            obj.push_back(std::make_pair("blockHeight", 0));
+            txes.push_back(obj);
+        }
+    }
+
+    // cp txes
+    UniValue cptxes = cpTxesValues.get_array();
+    for (unsigned int i = 0; i < cptxes.size(); i++) {
+        const UniValue& t = cptxes[i];
+        std::string txid = find_value(t.get_obj(), "txid").get_str();
+        int height = find_value(t.get_obj(), "block_index").get_int();
+        if (txids.insert(std::make_pair(height, txid)).second) {
+            UniValue obj(UniValue::VOBJ);
+            obj.push_back(std::make_pair("txid", txid));
+            obj.push_back(std::make_pair("blockHeight", height));
+            txes.push_back(obj);
+        }
+    }
+
+    // sort
+    std::sort(txes.begin(), txes.end(), addressHistorySort);
+
+    // slice
+    unsigned int start = (page - 1) * per_page;
+    unsigned int end = ((start + per_page) > txes.size()) ? txes.size() : start + per_page;
+    std::vector<UniValue> slicedTxes(txes.begin() + start, txes.begin() + end);
+
+    // result
+    UniValue txs(UniValue::VARR);
+    for (std::vector<UniValue>::iterator it = slicedTxes.begin(); it != slicedTxes.end(); it++) {
+        std::string txid = find_value(it->get_obj(), "txid").get_str();
+        UniValue params(UniValue::VARR);
+        params.push_back(txid);
+        params.push_back(1);
+        UniValue rawtx = getrawtransaction(params, false);
+        txs.push_back(rawtx);
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.push_back(std::make_pair("txs", txs));
+    result.push_back(std::make_pair("tx_count", txes.size()));
+
+    return result;
+}
+
 UniValue getspentinfo(const UniValue& params, bool fHelp)
 {
 

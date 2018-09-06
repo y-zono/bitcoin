@@ -984,8 +984,12 @@ UniValue getaddresshistory(const UniValue& params, bool fHelp)
         UniValue params(UniValue::VARR);
         params.push_back(txid);
         params.push_back(1);
-        UniValue rawtx = getrawtransaction(params, false);
-        txs.push_back(rawtx);
+        try {
+            UniValue rawtx = getrawtransaction(params, false);
+            txs.push_back(rawtx);
+        } catch(...) {
+            LogPrintf("%s: getrawtransaction error txid = %s\n", __func__, txid);
+        }
     }
 
     UniValue result(UniValue::VOBJ);

@@ -975,8 +975,11 @@ UniValue getaddresshistory(const UniValue& params, bool fHelp)
     // slice
     unsigned int start = (page - 1) * per_page;
     unsigned int end = ((start + per_page) > txes.size()) ? txes.size() : start + per_page;
-    std::vector<UniValue> slicedTxes(txes.begin() + start, txes.begin() + end);
-
+    std::vector<UniValue> slicedTxes;
+    if (start <= txes.size()) {
+        slicedTxes = std::vector<UniValue>(txes.begin() + start, txes.begin() + end);
+    }
+    
     // result
     UniValue txs(UniValue::VARR);
     for (std::vector<UniValue>::iterator it = slicedTxes.begin(); it != slicedTxes.end(); it++) {
